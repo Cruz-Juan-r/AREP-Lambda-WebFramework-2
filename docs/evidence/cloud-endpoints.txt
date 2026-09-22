@@ -1,0 +1,103 @@
+$ curl -i ec2-18-234-76-168.compute-1.amazonaws.com/hello?name=Pedro
+HTTP/1.1 200 OK
+Content-Type: text/plain; charset=UTF-8
+Content-Length: 10
+Server: LambdaWebFramework/1.0
+Connection: close
+
+Hola Pedro
+
+$ curl -i ec2-18-234-76-168.compute-1.amazonaws.com/hello
+HTTP/1.1 200 OK
+Content-Type: text/plain; charset=UTF-8
+Content-Length: 10
+Server: LambdaWebFramework/1.0
+Connection: close
+
+Hola world
+
+$ curl -i ec2-18-234-76-168.compute-1.amazonaws.com/pi
+HTTP/1.1 200 OK
+Content-Type: text/plain; charset=UTF-8
+Content-Length: 17
+Server: LambdaWebFramework/1.0
+Connection: close
+
+3.141592653589793
+
+$ curl -i ec2-18-234-76-168.compute-1.amazonaws.com/api/sum?a=2&b=3.5
+HTTP/1.1 200 OK
+Content-Type: application/json; charset=UTF-8
+Content-Length: 27
+Server: LambdaWebFramework/1.0
+Connection: close
+
+{"a":2.0,"b":3.5,"sum":5.5}
+
+$ curl -i ec2-18-234-76-168.compute-1.amazonaws.com/api/sum?a=2   (missing param -> 400)
+HTTP/1.1 400 Bad Request
+Content-Type: application/json; charset=UTF-8
+Content-Length: 76
+Server: LambdaWebFramework/1.0
+Connection: close
+
+{"error":"Query parameters 'a' and 'b' are required, e.g. /api/sum?a=2&b=3"}
+
+$ curl -i ec2-18-234-76-168.compute-1.amazonaws.com/api/info
+HTTP/1.1 200 OK
+Content-Type: application/json; charset=UTF-8
+Content-Length: 120
+Server: LambdaWebFramework/1.0
+Connection: close
+
+{"appEnv":"production","greetingPrefix":"Hola","staticFiles":"/webroot","shutdownEnabled":false,"javaVersion":"17.0.20"}
+
+$ curl -s -D - -o /dev/null ec2-18-234-76-168.compute-1.amazonaws.com/index.html   (headers only, GET)
+HTTP/1.1 200 OK
+Content-Type: text/html; charset=UTF-8
+Content-Length: 2980
+Server: LambdaWebFramework/1.0
+Connection: close
+
+
+$ curl -s -D - -o /dev/null ec2-18-234-76-168.compute-1.amazonaws.com/styles.css   (headers only, GET)
+HTTP/1.1 200 OK
+Content-Type: text/css; charset=UTF-8
+Content-Length: 3721
+Server: LambdaWebFramework/1.0
+Connection: close
+
+
+$ curl -s -D - -o /dev/null ec2-18-234-76-168.compute-1.amazonaws.com/app.js   (headers only, GET)
+HTTP/1.1 200 OK
+Content-Type: text/javascript; charset=UTF-8
+Content-Length: 2922
+Server: LambdaWebFramework/1.0
+Connection: close
+
+
+$ curl -s -o /dev/null -D - ec2-18-234-76-168.compute-1.amazonaws.com/images/logo.png   (headers only, GET, binary)
+HTTP/1.1 200 OK
+Content-Type: image/png
+Content-Length: 4292
+Server: LambdaWebFramework/1.0
+Connection: close
+
+
+$ curl -i ec2-18-234-76-168.compute-1.amazonaws.com/shutdown   (must be 404 in production)
+HTTP/1.1 404 Not Found
+Content-Type: text/plain; charset=UTF-8
+Content-Length: 13
+Server: LambdaWebFramework/1.0
+Connection: close
+
+404 Not Found
+
+$ curl -i ec2-18-234-76-168.compute-1.amazonaws.com/unknown
+HTTP/1.1 404 Not Found
+Content-Type: text/plain; charset=UTF-8
+Content-Length: 13
+Server: LambdaWebFramework/1.0
+Connection: close
+
+404 Not Found

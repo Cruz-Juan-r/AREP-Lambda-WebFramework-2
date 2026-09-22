@@ -4,8 +4,8 @@ A small Java web framework built on raw sockets. Developers register REST servic
 
 - **Author:** Juan Esteban Cruz
 - **Course:** AREP, Escuela Colombiana de Ingeniería Julio Garavito
-- **Cloud platform:** AWS (Amazon EC2 + Docker)
-- **Public deployment URL:** `http://<EC2_PUBLIC_DNS>` ← replace with your URL after deploying
+- **Cloud platform:** AWS (Amazon EC2 + Docker, AWS Academy Learner Lab)
+- **Public deployment URL:** <http://ec2-18-234-76-168.compute-1.amazonaws.com> (also reachable at `http://18.234.76.168`)
 
 ```java
 import static co.edu.escuelaing.webframework.WebFramework.*;
@@ -219,11 +219,37 @@ No secrets, tokens or keys are used or committed. `.env` files are ignored by Gi
 | Lambda (dev only) | `/shutdown` | Stops the server gracefully; `404` in production |
 | Error | `/unknown` | `404 Not Found` |
 
-Cloud versions: prefix any path with `http://<EC2_PUBLIC_DNS>`, e.g. `http://<EC2_PUBLIC_DNS>/hello?name=Pedro`.
+Cloud versions: prefix any path with `http://ec2-18-234-76-168.compute-1.amazonaws.com`, e.g. <http://ec2-18-234-76-168.compute-1.amazonaws.com/hello?name=Pedro>.
 
 ## Cloud deployment (AWS EC2 + Docker)
 
 The deployment builds the **same source code** inside a Docker image (multi-stage `Dockerfile`: Maven builds and tests, then only the jar is copied into a JRE image). These steps work in AWS Academy Learner Lab.
+
+### How the running deployment was created
+
+The live instance above (`i-0fee51cae5c0ed33c`, `t3.micro`, Amazon Linux 2023, `us-east-1`) was launched with the AWS CLI, with a security group allowing HTTP (80) from anywhere and SSH (22) from the deployer's IP only, and an **EC2 user-data script** that runs once at boot as root:
+
+```bash
+#!/bin/bash
+dnf install -y docker git
+systemctl enable --now docker
+
+cd /home/ec2-user
+git clone https://github.com/Cruz-Juan-r/AREP-Lambda-WebFramework.git
+cd AREP-Lambda-WebFramework
+docker build -t lambda-webframework .
+
+docker run -d --name lambda-web --restart unless-stopped \
+  -p 80:8080 \
+  -e PORT=8080 \
+  -e APP_ENV=production \
+  -e GREETING_PREFIX=Hola \
+  lambda-webframework
+```
+
+This is the same build-and-run sequence described step by step below; user-data just runs it unattended during instance boot instead of over an interactive SSH session, cloning the **public** GitHub repository directly (no credentials needed).
+
+### Reproducing it manually
 
 1. **Launch an EC2 instance**: Amazon Linux 2023, `t2.micro` or `t3.micro`, with a key pair.
 2. **Security group inbound rules**: SSH (22) from your IP, HTTP (80) from `0.0.0.0/0`.
@@ -260,6 +286,8 @@ The deployment builds the **same source code** inside a Docker image (multi-stag
 **Updating the deployment:** `git pull && docker build -t lambda-webframework . && docker rm -f lambda-web` and repeat step 5.
 
 > Alternative platforms that inject `PORT` automatically (Render, Railway, Heroku-style) also work with the same `Dockerfile`: set `APP_ENV=production` and `GREETING_PREFIX` in the service settings and do not set `PORT` yourself.
+
+> AWS Academy Learner Lab credentials are temporary (they expire when the lab session ends), so the instance above will stop being reachable once the lab is stopped/reset. Relaunching it takes the same `aws ec2 run-instances` call with this user-data script against a fresh Learner Lab session.
 
 ## Evidence
 
@@ -301,21 +329,32 @@ Server log for the same run:
 
 ### Cloud (production on AWS)
 
-Public URL: `http://<EC2_PUBLIC_DNS>`
+Public URL: <http://ec2-18-234-76-168.compute-1.amazonaws.com> (`http://18.234.76.168`)
 
-| Evidence | File |
-|---|---|
-| Deployed page in the browser (URL bar visible) | `docs/evidence/cloud-page.png` |
-| Static resource: `/images/logo.png` opened in the browser | `docs/evidence/cloud-static-logo.png` |
-| REST endpoint 1: `/hello?name=Pedro` → `Hola Pedro` | `docs/evidence/cloud-hello.png` |
-| REST endpoint 2: `/pi` and `/api/sum?a=2&b=3.5` | `docs/evidence/cloud-pi-sum.png` |
-| Environment variables: `/api/info` + `docker inspect` output (no secrets) | `docs/evidence/cloud-env.png` |
-| `/shutdown` is **not** available: `404 Not Found` | `docs/evidence/cloud-shutdown-404.png` |
-| `verify.sh <url> production` run against the public URL | `docs/evidence/cloud-verify.png` |
+- Deployed page, served by the EC2 instance:
 
-<!-- Once the screenshots are in docs/evidence, you can also embed them, e.g.:
-![Cloud page](docs/evidence/cloud-page.png)
--->
+  ![Cloud demo page](docs/evidence/cloud-page.jpg)
+
+- Live `fetch()` calls made from the browser against the public URL — `/api/info` (environment variables, no secrets), `/pi`, `/api/sum?a=2&b=3.5` (two query parameters), `/hello?name=` (missing parameter handled), and `/does-not-exist` (`404`) — each with its real status code and timing, taken from the deployed page's own request log:
+
+  ![Live requests against the cloud deployment](docs/evidence/cloud-requests.jpg)
+
+- Static resource `/images/logo.png` opened directly in the browser:
+
+  ![Cloud static image](docs/evidence/cloud-static-logo.jpg)
+
+- `/shutdown` is **not** available in production — `404 Not Found`:
+
+  ![Cloud shutdown disabled](docs/evidence/cloud-shutdown-404.jpg)
+
+- [`cloud-endpoints.txt`](docs/evidence/cloud-endpoints.txt): `curl -i` output for `/hello?name=Pedro`, `/hello`, `/pi`, `/api/sum?a=2&b=3.5`, `/api/sum?a=2` (`400`), `/api/info`, the static HTML/CSS/JS/PNG files, `/shutdown` (`404` in production) and `/unknown` (`404`), all run against the public URL.
+- [`cloud-verify.txt`](docs/evidence/cloud-verify.txt): `./scripts/verify.sh http://18.234.76.168 production`, 13/13 passing.
+
+Environment variables in effect on the instance, with no secrets (from `/api/info`, part of `cloud-endpoints.txt` and visible in the request-log screenshot above):
+
+```json
+{"appEnv":"production","greetingPrefix":"Hola","staticFiles":"/webroot","shutdownEnabled":false,"javaVersion":"17.0.20"}
+```
 
 ## Tests
 
