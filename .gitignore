@@ -1,0 +1,25 @@
+# Maven
+target/
+dependency-reduced-pom.xml
+
+# IDEs
+.idea/
+*.iml
+.vscode/
+.classpath
+.project
+.settings/
+out/
+bin/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Local configuration and secrets (never commit these)
+.env
+*.pem
+*.key
+
+# Logs
+*.log

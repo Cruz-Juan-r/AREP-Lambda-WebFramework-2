@@ -1,0 +1,27 @@
+# Server log: PORT=8080 APP_ENV=development GREETING_PREFIX=Hello java -jar target/lambda-webframework.jar
+[app] APP_ENV=development, GREETING_PREFIX=Hello, STATIC_FILES_PATH=/webroot
+[router] GET /hello
+[router] GET /pi
+[router] GET /api/sum
+[router] GET /api/info
+[router] GET /shutdown
+[http] Listening on http://0.0.0.0:8080 (static files: classpath:/webroot)
+[http] 200 GET /hello?name=Pedro
+[http] 200 GET /hello
+[http] 200 GET /hello?name=Pedro&language=en
+[http] 200 GET /pi
+[http] 200 GET /api/sum?a=2&b=3.5
+[http] 400 GET /api/sum?a=2
+[http] 200 GET /api/info
+[http] 404 GET /unknown
+[http] 404 GET /images/missing.png
+[http] 404 GET /images
+[http] 200 GET /images/logo.png
+[http] 200 GET /index.html
+[http] 200 GET /app.js
+[http] 200 GET /styles.css
+[http] 400 Malformed request line: garbage
+[http] 405 POST /hello
+[http] Shutdown requested: finishing the current request before closing.
+[http] 200 GET /shutdown
+[http] Server stopped gracefully.

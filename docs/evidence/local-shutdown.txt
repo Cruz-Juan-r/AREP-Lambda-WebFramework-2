@@ -1,0 +1,11 @@
+$ curl -i http://localhost:8080/shutdown
+HTTP/1.1 200 OK
+Content-Type: text/plain; charset=UTF-8
+Content-Length: 37
+Server: LambdaWebFramework/1.0
+Connection: close
+
+Server will stop after this response.
+
+$ curl -i http://localhost:8080/pi   # after shutdown
+curl: (7) Failed to connect to localhost port 8080: Connection refused

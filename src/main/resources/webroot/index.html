@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Lambda Web Framework</title>
+    <link rel="icon" type="image/png" href="/images/logo.png">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&display=swap">
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+<header class="masthead">
+    <img src="/images/logo.png" alt="Lambda Web Framework logo" width="72" height="72">
+    <div>
+        <h1>Lambda Web Framework</h1>
+        <p>A sequential Java server. Every button below sends a real request to it.</p>
+    </div>
+</header>
+
+<main class="layout">
+    <section class="panel" aria-labelledby="services-title">
+        <h2 id="services-title">Lambda services</h2>
+
+        <form class="row" id="greet-form">
+            <label for="name">Your name</label>
+            <div class="inline">
+                <input id="name" name="name" type="text" placeholder="Pedro" autocomplete="off">
+                <button type="submit">Greet me</button>
+            </div>
+            <output id="result" class="result" aria-live="polite"></output>
+        </form>
+
+        <form class="row" id="sum-form">
+            <label for="a">Add two numbers</label>
+            <div class="inline">
+                <input id="a" type="text" inputmode="decimal" value="2" aria-label="First number">
+                <span class="plus" aria-hidden="true">+</span>
+                <input id="b" type="text" inputmode="decimal" value="3.5" aria-label="Second number">
+                <button type="submit">Add</button>
+            </div>
+            <output id="sum-result" class="result" aria-live="polite"></output>
+        </form>
+
+        <div class="row">
+            <span class="label">Other requests</span>
+            <div class="inline wrap">
+                <button type="button" data-path="/pi">Get π</button>
+                <button type="button" data-path="/api/info">Show configuration</button>
+                <button type="button" data-path="/styles.css">Fetch styles.css</button>
+                <button type="button" data-path="/does-not-exist" class="ghost">Request a missing page</button>
+            </div>
+        </div>
+    </section>
+
+    <section class="panel log-panel" aria-labelledby="log-title">
+        <div class="log-head">
+            <h2 id="log-title">Request log</h2>
+            <button type="button" id="clear-log" class="ghost small">Clear</button>
+        </div>
+        <p class="hint" id="log-empty">Requests you send appear here with their status code and response body.</p>
+        <ol id="log" class="log"></ol>
+    </section>
+</main>
+
+<footer class="footer">
+    AREP lab: lambda routes, static files and graceful sequential shutdown.
+</footer>
+
+<script src="/app.js"></script>
+</body>
+</html>

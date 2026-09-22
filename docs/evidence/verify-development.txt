@@ -1,0 +1,15 @@
+Verifying http://localhost:8080 (mode: development)
+PASS  index page (200)
+PASS  index.html (200)
+PASS  styles.css (200)
+PASS  app.js (200)
+PASS  logo.png (200)
+PASS  hello with name (200)
+PASS  hello without name (200)
+PASS  pi (200)
+PASS  sum (2 params) (200)
+PASS  sum missing param (400)
+PASS  info (200)
+PASS  unknown route (404)
+----
+12 passed, 0 failed
