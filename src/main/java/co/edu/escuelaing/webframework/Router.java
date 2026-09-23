@@ -11,12 +11,15 @@ import java.util.Optional;
 /**
  * Maps an HTTP method and path to the lambda handler registered for it.
  * Adding a route here never requires touching the server loop.
+ *
+ * <p>Worker threads look routes up concurrently, so access to the map is
+ * synchronized; lookups are O(1) and the lock is held for nanoseconds.</p>
  */
 public final class Router {
 
     private final Map<String, Route> routes = new LinkedHashMap<>();
 
-    public void register(String method, String path, RouteHandler handler) {
+    public synchronized void register(String method, String path, RouteHandler handler) {
         if (handler == null) {
             throw new IllegalArgumentException("Handler must not be null");
         }
@@ -27,7 +30,7 @@ public final class Router {
         }
     }
 
-    public Optional<RouteHandler> find(String method, String path) {
+    public synchronized Optional<RouteHandler> find(String method, String path) {
         if (method == null || path == null || !path.startsWith("/")) {
             return Optional.empty();
         }
@@ -35,7 +38,7 @@ public final class Router {
         return Optional.ofNullable(route).map(Route::handler);
     }
 
-    public List<Route> routes() {
+    public synchronized List<Route> routes() {
         return Collections.unmodifiableList(new ArrayList<>(routes.values()));
     }
 

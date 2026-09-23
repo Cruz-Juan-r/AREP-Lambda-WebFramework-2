@@ -55,6 +55,19 @@ class ApplicationHandlersTest {
     }
 
     @Test
+    void slowReportsSleepAndThreadAndCapsTheWait() throws Exception {
+        String body = Application.slow().handle(request("/api/slow?ms=10"), new Response());
+        assertTrue(body.contains("\"sleptMs\":10"));
+        assertTrue(body.contains("\"thread\":\"" + Thread.currentThread().getName() + "\""));
+
+        Response bad = new Response();
+        Application.slow().handle(request("/api/slow?ms=abc"), bad);
+        assertEquals(400, bad.getStatus());
+
+        assertTrue(Application.slow().handle(request("/api/slow?ms=-5"), new Response()).contains("\"sleptMs\":0"));
+    }
+
+    @Test
     void infoExposesOnlyNonSensitiveConfiguration() throws Exception {
         AppConfig config = AppConfig.from(Map.of("APP_ENV", "production", "GREETING_PREFIX", "Hi \"there\""));
         String body = Application.info(config).handle(request("/api/info"), new Response());

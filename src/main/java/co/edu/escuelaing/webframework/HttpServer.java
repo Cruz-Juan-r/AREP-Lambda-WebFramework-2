@@ -8,71 +8,125 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Sequential HTTP/1.1 server: it accepts one connection, answers it completely,
- * closes it and only then accepts the next one. No worker threads are used.
+ * Concurrent HTTP/1.1 server. One acceptor thread takes connections from the
+ * {@link ServerSocket} and hands each one to a fixed pool of worker threads,
+ * so a slow request no longer blocks the rest.
  *
  * <p>The server knows nothing about specific endpoints. It asks the
  * {@link Router} for a lambda and, if none matches, the
  * {@link StaticFileService} for a file. Otherwise it answers 404.</p>
+ *
+ * <p>Graceful shutdown: {@link #stop()} closes the listening socket, so no new
+ * connection is accepted, and then waits up to the configured timeout for the
+ * requests that are already being processed to finish.</p>
  */
 public final class HttpServer {
 
     /** Bind on every interface so cloud load balancers and containers can reach us. */
     public static final String BIND_ADDRESS = "0.0.0.0";
 
-    /** A silent client must not block the sequential server forever. */
+    public static final int DEFAULT_WORKER_THREADS = Math.max(4, Runtime.getRuntime().availableProcessors() * 2);
+    public static final Duration DEFAULT_SHUTDOWN_TIMEOUT = Duration.ofSeconds(5);
+
+    /** A silent client must not hold a worker thread forever. */
     private static final int CLIENT_READ_TIMEOUT_MS = 5_000;
 
     private final Router router;
     private final StaticFileService staticFiles;
+    private final int workerThreads;
+    private final Duration shutdownTimeout;
+
+    private final AtomicInteger activeRequests = new AtomicInteger();
+    private final CountDownLatch stopped = new CountDownLatch(1);
 
     private volatile boolean running = false;
     private volatile int localPort = -1;
+    private volatile ServerSocket serverSocket;
 
     public HttpServer(Router router, StaticFileService staticFiles) {
-        this.router = router;
-        this.staticFiles = staticFiles;
+        this(router, staticFiles, DEFAULT_WORKER_THREADS, DEFAULT_SHUTDOWN_TIMEOUT);
     }
 
+    public HttpServer(Router router, StaticFileService staticFiles, int workerThreads, Duration shutdownTimeout) {
+        if (workerThreads < 1) {
+            throw new IllegalArgumentException("workerThreads must be at least 1, got: " + workerThreads);
+        }
+        this.router = router;
+        this.staticFiles = staticFiles;
+        this.workerThreads = workerThreads;
+        this.shutdownTimeout = shutdownTimeout;
+    }
+
+    /** Accepts connections until {@link #stop()} is called, then drains the workers. Blocks the caller. */
     public void start(int port) throws IOException {
-        running = true;
-        try (ServerSocket serverSocket = new ServerSocket()) {
-            serverSocket.setReuseAddress(true);
-            serverSocket.bind(new InetSocketAddress(BIND_ADDRESS, port));
-            localPort = serverSocket.getLocalPort();
+        if (stopped.getCount() == 0) {
+            throw new IllegalStateException("A stopped HttpServer cannot be restarted; create a new one");
+        }
+        ExecutorService workers = Executors.newFixedThreadPool(workerThreads, new WorkerThreadFactory());
+        try (ServerSocket socket = new ServerSocket()) {
+            socket.setReuseAddress(true);
+            socket.bind(new InetSocketAddress(BIND_ADDRESS, port));
+            serverSocket = socket;
+            localPort = socket.getLocalPort();
+            running = true;
             log("Listening on http://" + BIND_ADDRESS + ":" + localPort
+                    + " with " + workerThreads + " worker threads"
                     + " (static files: " + (staticFiles == null ? "disabled" : staticFiles.describe()) + ")");
 
             while (running) {
-                try (Socket clientSocket = serverSocket.accept()) {
-                    clientSocket.setSoTimeout(CLIENT_READ_TIMEOUT_MS);
-                    handleConnection(clientSocket);
+                Socket clientSocket;
+                try {
+                    clientSocket = socket.accept();
                 } catch (IOException e) {
-                    // One misbehaving client must never bring the server down.
-                    log("Connection error: " + e.getMessage());
+                    if (running) {
+                        log("Accept error: " + e.getMessage());
+                        continue;
+                    }
+                    break; // stop() closed the socket to unblock accept().
+                }
+                try {
+                    workers.execute(() -> serve(clientSocket));
+                } catch (RejectedExecutionException e) {
+                    closeQuietly(clientSocket);
                 }
             }
         } finally {
             running = false;
             localPort = -1;
+            drain(workers);
+            stopped.countDown();
         }
-        log("Server stopped gracefully.");
     }
 
     /**
-     * Requests a graceful stop. The request currently being processed is
-     * answered and its connection closed; then the loop exits and the
-     * ServerSocket is closed.
+     * Requests a graceful stop and returns immediately. The listening socket is
+     * closed right away; requests already in progress are allowed to finish.
+     * Safe to call from a request handler or from a JVM shutdown hook.
      */
     public void stop() {
-        if (running) {
-            log("Shutdown requested: finishing the current request before closing.");
+        if (!running) {
+            return;
         }
         running = false;
+        log("Shutdown requested: no new connections, waiting for " + activeRequests.get() + " active request(s).");
+        closeQuietly(serverSocket);
+    }
+
+    /** Blocks until the server has fully stopped or the timeout expires. */
+    public boolean awaitStopped(Duration timeout) throws InterruptedException {
+        return stopped.await(timeout.toMillis(), TimeUnit.MILLISECONDS);
     }
 
     public boolean isRunning() {
@@ -82,6 +136,40 @@ public final class HttpServer {
     /** Actual bound port (useful when started with port 0), or -1 if not running. */
     public int getLocalPort() {
         return localPort;
+    }
+
+    public int getActiveRequests() {
+        return activeRequests.get();
+    }
+
+    private void drain(ExecutorService workers) {
+        workers.shutdown();
+        try {
+            if (workers.awaitTermination(shutdownTimeout.toMillis(), TimeUnit.MILLISECONDS)) {
+                log("Server stopped gracefully.");
+            } else {
+                log("Shutdown timeout (" + shutdownTimeout.toSeconds() + " s) reached; interrupting "
+                        + activeRequests.get() + " request(s).");
+                workers.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            workers.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    /** Runs on a worker thread: one connection, one request, one response. */
+    private void serve(Socket clientSocket) {
+        activeRequests.incrementAndGet();
+        try (clientSocket) {
+            clientSocket.setSoTimeout(CLIENT_READ_TIMEOUT_MS);
+            handleConnection(clientSocket);
+        } catch (IOException e) {
+            // One misbehaving client must never bring the server down.
+            log("Connection error: " + e.getMessage());
+        } finally {
+            activeRequests.decrementAndGet();
+        }
     }
 
     private void handleConnection(Socket clientSocket) throws IOException {
@@ -142,7 +230,28 @@ public final class HttpServer {
         }
     }
 
+    private static void closeQuietly(AutoCloseable closeable) {
+        if (closeable == null) {
+            return;
+        }
+        try {
+            closeable.close();
+        } catch (Exception ignored) {
+            // Nothing useful to do while closing.
+        }
+    }
+
     private static void log(String message) {
-        System.out.println("[http] " + message);
+        System.out.println("[http] [" + Thread.currentThread().getName() + "] " + message);
+    }
+
+    /** Named threads make the concurrency visible in the logs. */
+    private static final class WorkerThreadFactory implements ThreadFactory {
+        private final AtomicInteger count = new AtomicInteger();
+
+        @Override
+        public Thread newThread(Runnable task) {
+            return new Thread(task, "http-worker-" + count.incrementAndGet());
+        }
     }
 }

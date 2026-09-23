@@ -10,12 +10,18 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Arrays;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CyclicBarrier;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertArrayEquals;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -30,6 +36,9 @@ class HttpServerIntegrationTest {
     private Thread serverThread;
     private int port;
     private final AtomicReference<Throwable> serverError = new AtomicReference<>();
+    private final CyclicBarrier rendezvous = new CyclicBarrier(2);
+    private final CountDownLatch heldStarted = new CountDownLatch(1);
+    private final CountDownLatch heldRelease = new CountDownLatch(1);
 
     @BeforeEach
     void startServer() throws Exception {
@@ -47,8 +56,19 @@ class HttpServerIntegrationTest {
             server.stop();
             return "Server will stop after this response.";
         });
+        // Completes only when two requests are inside it at the same time.
+        router.register("GET", "/rendezvous", (req, resp) -> {
+            rendezvous.await(3, TimeUnit.SECONDS);
+            return "met on " + Thread.currentThread().getName();
+        });
+        // Signals that it started, then waits until the test releases it.
+        router.register("GET", "/held", (req, resp) -> {
+            heldStarted.countDown();
+            heldRelease.await(5, TimeUnit.SECONDS);
+            return "finished during shutdown";
+        });
 
-        server = new HttpServer(router, StaticFileService.of("/webroot"));
+        server = new HttpServer(router, StaticFileService.of("/webroot"), 4, Duration.ofSeconds(5));
         serverThread = new Thread(() -> {
             try {
                 server.start(0);
@@ -173,10 +193,72 @@ class HttpServerIntegrationTest {
         assertThrows(IOException.class, () -> new Socket("localhost", port).close());
     }
 
+    @Test
+    void requestsAreProcessedConcurrently() throws Exception {
+        // A sequential server would run the first /rendezvous alone, time out and answer 500.
+        CompletableFuture<RawResponse> first = CompletableFuture.supplyAsync(() -> getUnchecked("/rendezvous"));
+        CompletableFuture<RawResponse> second = CompletableFuture.supplyAsync(() -> getUnchecked("/rendezvous"));
+
+        RawResponse a = first.get(10, TimeUnit.SECONDS);
+        RawResponse b = second.get(10, TimeUnit.SECONDS);
+        assertEquals(200, a.status);
+        assertEquals(200, b.status);
+        assertTrue(a.bodyText().startsWith("met on http-worker-"));
+        assertNotEquals(a.bodyText(), b.bodyText(), "each request must run on its own worker thread");
+    }
+
+    @Test
+    void slowRequestDoesNotBlockOtherRequests() throws Exception {
+        CompletableFuture<RawResponse> held = CompletableFuture.supplyAsync(() -> getUnchecked("/held"));
+        assertTrue(heldStarted.await(5, TimeUnit.SECONDS));
+
+        long start = System.nanoTime();
+        assertEquals(200, get("/pi").status);
+        assertTrue(Duration.ofNanos(System.nanoTime() - start).toMillis() < 2_000);
+
+        heldRelease.countDown();
+        assertEquals(200, held.get(5, TimeUnit.SECONDS).status);
+    }
+
+    @Test
+    void gracefulShutdownFinishesInFlightRequestAndRefusesNewOnes() throws Exception {
+        CompletableFuture<RawResponse> held = CompletableFuture.supplyAsync(() -> getUnchecked("/held"));
+        assertTrue(heldStarted.await(5, TimeUnit.SECONDS));
+        assertEquals(1, server.getActiveRequests());
+
+        server.stop();
+        assertFalse(server.isRunning());
+        assertThrows(IOException.class, () -> new Socket("localhost", port).close(), "listening socket must be closed");
+        assertTrue(serverThread.isAlive(), "server must wait for the in-flight request");
+
+        heldRelease.countDown();
+        RawResponse r = held.get(5, TimeUnit.SECONDS);
+        assertEquals(200, r.status);
+        assertEquals("finished during shutdown", r.bodyText());
+
+        assertTrue(server.awaitStopped(Duration.ofSeconds(5)));
+        serverThread.join(5_000);
+        assertFalse(serverThread.isAlive());
+    }
+
+    @Test
+    void stopWithoutTrafficReturnsPromptly() throws Exception {
+        server.stop();
+        assertTrue(server.awaitStopped(Duration.ofSeconds(2)), "stop must not wait for another connection");
+    }
+
     // ---- helpers -------------------------------------------------------------------------
 
     private RawResponse get(String target) throws IOException {
         return parse(send("GET " + target + " HTTP/1.1\r\nHost: localhost\r\n\r\n"));
+    }
+
+    private RawResponse getUnchecked(String target) {
+        try {
+            return get(target);
+        } catch (IOException e) {
+            throw new IllegalStateException(e);
+        }
     }
 
     private byte[] send(String raw) throws IOException {

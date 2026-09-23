@@ -26,6 +26,7 @@ public class Application {
         get("/pi", (req, resp) -> String.valueOf(Math.PI));
         get("/api/sum", sum());
         get("/api/info", info(config));
+        get("/api/slow", slow());
 
         if (config.shutdownEnabled()) {
             get("/shutdown", (req, resp) -> {
@@ -81,6 +82,28 @@ public class Application {
                     + "}";
         };
     }
+
+    /**
+     * GET /api/slow?ms=2000 -> waits and reports which worker thread served it.
+     * Firing several at once shows that requests are processed in parallel.
+     */
+    static RouteHandler slow() {
+        return (req, resp) -> {
+            resp.type(Response.APPLICATION_JSON);
+            long ms;
+            try {
+                ms = Long.parseLong(req.getValueOrDefault("ms", "2000").trim());
+            } catch (NumberFormatException e) {
+                resp.status(400);
+                return "{\"error\":\"'ms' must be a number of milliseconds\"}";
+            }
+            ms = Math.max(0, Math.min(ms, MAX_SLOW_MS));
+            Thread.sleep(ms);
+            return "{\"sleptMs\":" + ms + ",\"thread\":\"" + json(Thread.currentThread().getName()) + "\"}";
+        };
+    }
+
+    static final long MAX_SLOW_MS = 10_000;
 
     static String json(String value) {
         if (value == null) {
