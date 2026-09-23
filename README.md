@@ -151,7 +151,7 @@ The key idea is the separation between the **stable** parts (door, notepad, tick
 **Requirements:** Java 17+ and Maven 3.8+.
 
 ```bash
-git clone https://github.com/Cruz-Juan-r/AREP-Lambda-WebFramework.git
+git clone https://github.com/Cruz-Juan-r/AREP-Lambda-WebFramework-2.git
 cd AREP-Lambda-WebFramework
 mvn clean package          # compiles and runs the 47 tests
 java -jar target/lambda-webframework.jar
@@ -235,7 +235,7 @@ dnf install -y docker git
 systemctl enable --now docker
 
 cd /home/ec2-user
-git clone https://github.com/Cruz-Juan-r/AREP-Lambda-WebFramework.git
+git clone https://github.com/Cruz-Juan-r/AREP-Lambda-WebFramework-2.git
 cd AREP-Lambda-WebFramework
 docker build -t lambda-webframework .
 
@@ -262,7 +262,7 @@ This is the same build-and-run sequence described step by step below; user-data 
    ```
 4. **Build the image from the repository:**
    ```bash
-   git clone https://github.com/Cruz-Juan-r/AREP-Lambda-WebFramework.git
+   git clone https://github.com/Cruz-Juan-r/AREP-Lambda-WebFramework-2.git
    cd AREP-Lambda-WebFramework
    docker build -t lambda-webframework .
    ```
