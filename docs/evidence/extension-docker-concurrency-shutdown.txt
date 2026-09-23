@@ -1,0 +1,34 @@
+$ docker run -d --name lwf --stop-timeout 10 -p 38080:8080 lambda-webframework:2.0
+
+# 1) Concurrency: 5 parallel requests to /api/slow?ms=2000 (WORKER_THREADS=8)
+{"sleptMs":2000,"thread":"http-worker-2"}
+{"sleptMs":2000,"thread":"http-worker-3"}
+{"sleptMs":2000,"thread":"http-worker-4"}
+{"sleptMs":2000,"thread":"http-worker-5"}
+{"sleptMs":2000,"thread":"http-worker-6"}
+Total wall time: 2.38 s  (sequential server: ~10 s)
+
+# 2) Graceful shutdown: docker stop while a 3 s request is in flight
+{"sleptMs":3000,"thread":"http-worker-7"}
+[client] HTTP 200 after 3.029692 s
+[docker] docker stop returned after 2.66 s
+[docker] exit code: 143  (143 = terminated by SIGTERM, not killed)
+
+# Container log (docker logs lwf)
+[app] APP_ENV=production, GREETING_PREFIX=Hello, STATIC_FILES_PATH=/webroot
+[app] /shutdown is disabled because APP_ENV=production
+[router] GET /hello
+[router] GET /pi
+[router] GET /api/sum
+[router] GET /api/info
+[router] GET /api/slow
+[http] [main] Listening on http://0.0.0.0:8080 with 8 worker threads (static files: classpath:/webroot)
+[http] [http-worker-1] 200 GET /pi
+[http] [http-worker-2] 200 GET /api/slow?ms=2000
+[http] [http-worker-3] 200 GET /api/slow?ms=2000
+[http] [http-worker-4] 200 GET /api/slow?ms=2000
+[http] [http-worker-5] 200 GET /api/slow?ms=2000
+[http] [http-worker-6] 200 GET /api/slow?ms=2000
+[http] [shutdown-hook] Shutdown requested: no new connections, waiting for 1 active request(s).
+[http] [http-worker-7] 200 GET /api/slow?ms=3000
+[http] [main] Server stopped gracefully.
